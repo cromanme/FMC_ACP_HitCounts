@@ -21,6 +21,9 @@ import logging
 import requests
 import json
 import csv
+import time
+from datetime import datetime
+from dateutil import tz
 
 requests.packages.urllib3.disable_warnings()
 
@@ -29,71 +32,117 @@ logging.basicConfig(filename='app.log',
                     format='%(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
+def converttime(date_info):
+    if len(date_info) > 5:
+        init_time = date_info
+        init_time = init_time.replace('Z', '')
+        init_time = init_time.replace('T', ' ')
 
-print()
-uri = "https://127.0.0.1:9443/api/"
-user = "apiadmin"
-passwd = "BCP2019!"
+        from_zone = tz.gettz('UTC')
+        to_zone = tz.gettz('America/Lima')
 
-# Request Authentication Token
+        # utc = datetime.utcnow()
+        utc = datetime.strptime(init_time, '%Y-%m-%d %H:%M:%S')
 
-url = uri + "fmc_platform/v1/auth/generatetoken"
-response = requests.request("POST", url, auth=(user,passwd), verify=False)
+        # Tell the datetime object that it's in UTC time zone since 
+        # datetime objects are 'naive' by default
+        utc = utc.replace(tzinfo=from_zone)
 
-token = response.headers.get("X-auth-access-token")
-domain_uuid = response.headers.get("DOMAIN_UUID")
+        # Convert time zone
+        lima_time = utc.astimezone(to_zone)
+        lima_time = str(lima_time)
+        lima_time = lima_time.replace('-05:00',' UTC -5')
+        return lima_time
+    else:
+        return date_info
 
-# Request Access Policies
 
-url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/policy/accesspolicies"
-headers = {
-  'X-auth-access-token': token
-}
-response = requests.request("GET", url, headers=headers, verify=False)
-acp_name = response.json().get("items")[0].get("name")
-acp_id = response.json().get("items")[0].get("id")
+# Module Functions and Classes
+def main(*args):
 
-# Request Device ID
+    print()
+    
+    uri = "https://127.0.0.1:9443/api/"
+    user = "tacadmin"
+    passwd = "BCP2019!"
+    print()
+    # Request Authentication Token
 
-url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/deviceclusters/ftddevicecluster"
-headers = {
-  'X-auth-access-token': token
-}
-parameters = {'expanded': "true"}
-response = requests.request("GET", url, headers=headers, params=parameters, verify=False)
-device_id = response.json().get("items")[0].get("masterDevice").get("id")
+    url = uri + "fmc_platform/v1/auth/generatetoken"
+    response = requests.request("POST", url, auth=(user,passwd), verify=False)
 
-# Request ACP HitCounts
+    token = response.headers.get("X-auth-access-token")
+    domain_uuid = response.headers.get("DOMAIN_UUID")
 
-url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/policy/accesspolicies/"+ acp_id +"/operational/hitcounts"
-headers = {
-  'X-auth-access-token': token
-}
-parameters = {'filter': '"deviceid:'+device_id+'"',
-            'limit': '50',
-            'expanded': 'true'
-            }
-response = requests.request("GET", url, headers=headers, params=parameters, verify=False)
-rules = response.json().get("items")
+    # Request Access Policies
 
-# now we will open a file for writing 
-data_file = open('data_file.csv', 'w') 
+    url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/policy/accesspolicies"
+    headers = {
+    'X-auth-access-token': token
+    }
+    response = requests.request("GET", url, headers=headers, verify=False)
+    acp_id = response.json().get("items")[0].get("id")
 
-# create the csv writer object 
-csv_writer = csv.writer(data_file) 
+    # Request Device ID
 
-# Headers to the CSV file 
+    url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/deviceclusters/ftddevicecluster"
+    headers = {
+    'X-auth-access-token': token
+    }
+    parameters = {'expanded': "true"}
+    response = requests.request("GET", url, headers=headers, params=parameters, verify=False)
+    device_id = response.json().get("items")[0].get("masterDevice").get("id")
 
-csv_headers = ["Rule Name", "firstHitTimeStamp", "lastHitTimeStamp", "HitCount"]
-csv_writer.writerow(csv_headers) 
-row = []
+    # Refresh ACP HitCounts
+    print("Refreshing ACP Hit Counts, please wait...")
+    url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/policy/accesspolicies/"+ acp_id +"/operational/hitcounts"
+    headers = {
+    'X-auth-access-token': token
+    }
+    parameters = {'filter': '"deviceid:'+device_id+'"',
+                }
+    response = requests.request("PUT", url, headers=headers, params=parameters, verify=False)
+    time.sleep(29)
 
-for rule in rules:
-    row.append(rule.get("rule").get("name"))
-    row.append(rule.get("firstHitTimeStamp"))
-    row.append(rule.get("lastHitTimeStamp"))
-    row.append(str(rule.get("hitCount")))
-    csv_writer.writerow(row)
+    # Request ACP HitCounts
+    print("Retrieving ACP Hit Coutns..")
+    url = uri + "fmc_config/v1/domain/"+ domain_uuid +"/policy/accesspolicies/"+ acp_id +"/operational/hitcounts"
+    headers = {
+    'X-auth-access-token': token
+    }
+    parameters = {'filter': '"deviceid:'+device_id+'"',
+                'limit': '50',
+                'expanded': 'true'
+                }
+    response = requests.request("GET", url, headers=headers, params=parameters, verify=False)
+    rules = response.json().get("items")
+
+    # now we will open a file for writing 
+    data_file = open('data_file.csv', 'w') 
+
+    # create the csv writer object 
+    csv_writer = csv.writer(data_file) 
+
+    # Headers to the CSV file 
+
+    csv_headers = ["Rule Name", "Policy Name", "HitCount", "First Hit Time", "Last Hit Time"]
+    csv_writer.writerow(csv_headers) 
     row = []
-  
-data_file.close() 
+
+    for rule in rules:
+        row.append(rule.get("rule").get("name"))
+        row.append(str(rule.get("metadata").get("policy").get("name")))
+        row.append(str(rule.get("hitCount")))
+        row.append(converttime(rule.get("firstHitTimeStamp")))
+        row.append(converttime(rule.get("lastHitTimeStamp")))
+        csv_writer.writerow(row)
+        row = []
+    
+    data_file.close() 
+    print("Script successfully completed")
+
+# Check to see if this file is the "__main__" script being executed
+if __name__ == '__main__':
+    _, *script_args = sys.argv
+    main(*script_args)
+
