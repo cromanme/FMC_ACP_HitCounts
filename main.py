@@ -24,13 +24,9 @@ import csv
 import time
 from datetime import datetime
 from dateutil import tz
+from getpass import getpass
 
 requests.packages.urllib3.disable_warnings()
-
-logging.basicConfig(filename='app.log', 
-                    filemode='w', 
-                    format='%(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
 
 def converttime(date_info):
     if len(date_info) > 5:
@@ -62,17 +58,20 @@ def main(*args):
 
     print()
     
-    uri = "https://127.0.0.1:9443/api/"
-    user = "tacadmin"
-    passwd = "BCP2019!"
+    uri = "https://10.80.83.68/api/"
+    user = input("Username: ")
+    passwd = getpass("Password: ")
     print()
+
     # Request Authentication Token
 
     url = uri + "fmc_platform/v1/auth/generatetoken"
     response = requests.request("POST", url, auth=(user,passwd), verify=False)
-
-    token = response.headers.get("X-auth-access-token")
-    domain_uuid = response.headers.get("DOMAIN_UUID")
+    if response.status_code == 200 or response.status_code == 204:
+        token = response.headers.get("X-auth-access-token")
+        domain_uuid = response.headers.get("DOMAIN_UUID")
+    else:
+        sys.exit("Invalid Credentials")
 
     # Request Access Policies
 
@@ -111,7 +110,7 @@ def main(*args):
     'X-auth-access-token': token
     }
     parameters = {'filter': '"deviceid:'+device_id+'"',
-                'limit': '50',
+                'limit': '100',
                 'expanded': 'true'
                 }
     response = requests.request("GET", url, headers=headers, params=parameters, verify=False)
