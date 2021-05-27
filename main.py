@@ -59,9 +59,9 @@ def main(*args):
 
     print()
 
-    uri = "https://127.0.0.1:9443/api/"
-    user = "apiadmin"
-    passwd = "BCP2019!"
+    uri = "https://10.80.83.68/api/"
+    user = input("Username: ")
+    passwd = getpass("Password: ")
     print()
 
     # Request Authentication Token
